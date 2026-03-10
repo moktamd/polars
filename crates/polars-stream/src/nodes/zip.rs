@@ -79,18 +79,6 @@ impl InputHead {
         self.is_broadcast.is_some() && (self.total_len > 0 || self.stream_exhausted)
     }
 
-    fn min_len(&self) -> Option<usize> {
-        if self.is_broadcast == Some(false) {
-            Some(
-                self.morsels
-                    .front()
-                    .map_or(0, |(token, _, _)| token.height()),
-            )
-        } else {
-            None
-        }
-    }
-
     async fn take(&mut self, len: usize) -> DataFrame {
         let columns: Vec<Column> = if self.is_broadcast.unwrap() {
             mm().df(&self.morsels[0].0)
@@ -317,18 +305,34 @@ impl ComputeNode for ZipNode {
                 // TODO: recombine morsels to make sure the concatenation is
                 // close to the ideal morsel size.
 
+                let mut empty_non_broadcast = false;
+
                 // Compute common size and send a combined morsel.
                 let Some(common_size) = self
                     .input_heads
                     .iter()
-                    .filter_map(|h| h.min_len())
+                    .filter_map(|h| {
+                        if h.is_broadcast == Some(false) {
+                            if let Some((token, ..)) = h.morsels.front() {
+                                Some(token.height())
+                            } else {
+                                empty_non_broadcast = true;
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
                     .min()
-                    .filter(|x| *x > 0)
                 else {
                     // If all input heads are broadcasts we don't get a common size,
                     // we handle this below.
                     break;
                 };
+
+                if empty_non_broadcast && !matches!(self.zip_behavior, ZipBehavior::NullExtend) {
+                    break;
+                }
 
                 for input_head in &mut self.input_heads {
                     out.push(input_head.take(common_size).await);
