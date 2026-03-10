@@ -81,7 +81,11 @@ impl InputHead {
 
     fn min_len(&self) -> Option<usize> {
         if self.is_broadcast == Some(false) {
-            self.morsels.front().map(|(token, _, _)| token.height())
+            Some(
+                self.morsels
+                    .front()
+                    .map_or(0, |(token, _, _)| token.height()),
+            )
         } else {
             None
         }
@@ -314,7 +318,12 @@ impl ComputeNode for ZipNode {
                 // close to the ideal morsel size.
 
                 // Compute common size and send a combined morsel.
-                let Some(common_size) = self.input_heads.iter().flat_map(|h| h.min_len()).min()
+                let Some(common_size) = self
+                    .input_heads
+                    .iter()
+                    .filter_map(|h| h.min_len())
+                    .min()
+                    .filter(|x| *x > 0)
                 else {
                     // If all input heads are broadcasts we don't get a common size,
                     // we handle this below.
